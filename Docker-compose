@@ -1,0 +1,309 @@
+version: '3.8'
+
+# ============================================================================
+# LABORATORIO DE VULNERABILIDADES - DOCKER COMPOSE COMPLETO
+# ============================================================================
+# Autor: Cybersecurity Lab Setup
+# Descripción: Entorno completo para práctica de pentesting y vulnerabilidades
+# Uso: docker-compose up -d
+# ============================================================================
+
+services:
+  # =========================================================================
+  # MÁQUINA ATACANTE - KALI LINUX
+  # =========================================================================
+  kali:
+    image: kalilinux/kali-rolling
+    container_name: kali-attacker
+    hostname: kali-attacker
+    networks:
+      cybersec-lab:
+        ipv4_address: 172.25.0.10
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    privileged: true
+    volumes:
+      - ./shared:/shared
+      - ./tools:/root/tools
+      - ./reports:/root/reports
+      - ./wordlists:/usr/share/wordlists/custom
+    environment:
+      - TERM=xterm-256color
+    command: >
+      bash -c "
+        apt update && 
+        apt install -y nmap sqlmap gobuster nikto metasploit-framework 
+        curl wget vim nano net-tools iputils-ping dnsutils 
+        python3-pip hydra john hashcat whatweb dirb enum4linux 
+        smbclient nbtscan onesixtyone snmp-mibs-downloader &&
+        pip3 install requests beautifulsoup4 &&
+        echo 'Kali Linux configurado y listo para pentesting' &&
+        /bin/bash
+      "
+    depends_on:
+      - dvwa
+      - juiceshop
+      - webgoat
+
+  # =========================================================================
+  # APLICACIONES WEB VULNERABLES
+  # =========================================================================
+  
+  # DVWA - Damn Vulnerable Web Application
+  dvwa:
+    image: vulnerables/web-dvwa
+    container_name: dvwa-target
+    hostname: dvwa-target
+    networks:
+      cybersec-lab:
+        ipv4_address: 172.25.0.20
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=password
+      - MYSQL_DATABASE=dvwa
+      - MYSQL_USER=dvwa
+      - MYSQL_PASSWORD=password
+    volumes:
+      - dvwa_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # OWASP Juice Shop
+  juiceshop:
+    image: bkimminich/juice-shop
+    container_name: juiceshop-target
+    hostname: juiceshop-target
+    networks:
+      cybersec-lab:
+        ipv4_address: 172.25.0.21
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=unsafe
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # OWASP WebGoat
+  webgoat:
+    image: webgoat/webgoat-8.0
+    container_name: webgoat-target
+    hostname: webgoat-target
+    networks:
+      cybersec-lab:
+        ipv4_address: 172.25.0.22
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+    environment:
+      - WEBGOAT_PORT=8080
+      - WEBWOLF_PORT=9090
+    volumes:
+      - webgoat_data:/home/webgoat/.webgoat
+
+  # bWAPP - Buggy Web Application
+  bwapp:
+    image: raesene/bwapp
+    container_name: bwapp-target
+    hostname: bwapp-target
+    networks:
+      cybersec-lab:
+        ipv4_address: 172.25.0.23
+    ports:
+      - "8082:80"
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=bug
+      - MYSQL_DATABASE=bwapp
+    volumes:
+      - bwapp_data:/var/lib/mysql
+
+  # DVNA - Damn Vulnerable Node Application
+  dvna:
+    image: appsecco/dvna:sqlite
+    container_name: dvna-target
+    hostname: dvna-target
+    networks:
+      cybersec-lab:
+        ipv4_address: 172.25.0.24
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+    environment:
+      - SQLITE_DB=/tmp/dvna.db
+    volumes:
+      - dvna_data:/tmp
+
+  # =========================================================================
+  # SISTEMAS OPERATIVOS VULNERABLES
+  # =========================================================================
+  
+  # Metasploitable 2
+  metasploitable:
+    image: tleemcjr/metasploitable2
+    container_name: metasploitable-target
+    hostname: metasploitable-target
+    networks:
+      cybersec-lab:
+        ipv4_address: 172.25.0.30
+    ports:
+      - "2222:22"    # SSH
+      - "2121:21"    # FTP
+      - "8083:80"    # HTTP
+      - "1433:1433"  # SQL Server
+      - "3306:3306"  # MySQL
+      - "5432:5432"  # PostgreSQL
+      - "5900:5900"  # VNC
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    privileged: true
+    volumes:
+      - metasploitable_data:/var/log
+
+  # =========================================================================
+  # SERVICIOS ADICIONALES
+  # =========================================================================
+  
+  # MySQL Database (para aplicaciones que lo requieran)
+  mysql-db:
+    image: mysql:5.7
+    container_name: mysql-vulnerable
+    hostname: mysql-vulnerable
+    networks:
+      cybersec-lab:
+        ipv4_address: 172.25.0.40
+    ports:
+      - "3307:3306"
+    restart: unless-stopped
+    environment:
+      - MYSQL_ROOT_PASSWORD=password
+      - MYSQL_DATABASE=testdb
+      - MYSQL_USER=testuser
+      - MYSQL_PASSWORD=testpass
+    volumes:
+      - mysql_data:/var/lib/mysql
+    command: >
+      --sql-mode=""
+      --general-log=1
+      --general-log-file=/var/lib/mysql/general.log
+      --log-bin-trust-function-creators=1
+
+  # FTP Server Vulnerable
+  ftp-server:
+    image: stilliard/pure-ftpd:hardened
+    container_name: ftp-vulnerable
+    hostname: ftp-vulnerable
+    networks:
+      cybersec-lab:
+        ipv4_address: 172.25.0.41
+    ports:
+      - "2121:21"
+      - "30000-30009:30000-30009"
+    restart: unless-stopped
+    environment:
+      - PUBLICHOST=172.25.0.41
+      - FTP_USER_NAME=ftpuser
+      - FTP_USER_PASS=ftppass
+      - FTP_USER_HOME=/home/ftpuser
+    volumes:
+      - ftp_data:/home/ftpuser
+
+  # =========================================================================
+  # HERRAMIENTAS DE MONITOREO Y ANÁLISIS
+  # =========================================================================
+  
+  # Portainer - Gestión visual de contenedores
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer-manager
+    hostname: portainer-manager
+    networks:
+      cybersec-lab:
+        ipv4_address: 172.25.0.50
+    ports:
+      - "9000:9000"
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+
+# ============================================================================
+# CONFIGURACIÓN DE REDES
+# ============================================================================
+networks:
+  cybersec-lab:
+    name: cybersec-lab
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.25.0.0/16
+          gateway: 172.25.0.1
+    driver_opts:
+      com.docker.network.bridge.name: cybersec-lab
+      com.docker.network.bridge.enable_icc: "true"
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+
+# ============================================================================
+# VOLÚMENES PERSISTENTES
+# ============================================================================
+volumes:
+  dvwa_data:
+    name: dvwa_data
+  webgoat_data:
+    name: webgoat_data
+  bwapp_data:
+    name: bwapp_data
+  dvna_data:
+    name: dvna_data
+  metasploitable_data:
+    name: metasploitable_data
+  mysql_data:
+    name: mysql_data
+  ftp_data:
+    name: ftp_data
+  portainer_data:
+    name: portainer_data
+
+# ============================================================================
+# INSTRUCCIONES DE USO
+# ============================================================================
+# 
+# 1. DESPLEGAR EL LABORATORIO:
+#    docker-compose up -d
+#
+# 2. VERIFICAR CONTENEDORES:
+#    docker-compose ps
+#
+# 3. ACCEDER A KALI:
+#    docker exec -it kali-attacker /bin/bash
+#
+# 4. URLS DE ACCESO:
+#    - DVWA: http://localhost:8080 (admin/password)
+#    - Juice Shop: http://localhost:3000
+#    - WebGoat: http://localhost:8081/WebGoat
+#    - bWAPP: http://localhost:8082 (bee/bug)
+#    - DVNA: http://localhost:9090
+#    - Portainer: http://localhost:9000
+#
+# 5. SSH ACCESO:
+#    - Metasploitable: ssh msfadmin@localhost -p 2222 (msfadmin/msfadmin)
+#
+# 6. DETENER LABORATORIO:
+#    docker-compose down
+#
+# 7. LIMPIAR COMPLETAMENTE:
+#    docker-compose down -v --remove-orphans
+#    docker system prune -a
+#
+# ============================================================================
